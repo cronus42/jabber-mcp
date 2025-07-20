@@ -32,6 +32,7 @@ dependencies = [
   "asyncio-mqtt>=0.16.0",
   "aiofiles>=23.0.0",
   "cryptography>=41.0.0",
+  "fuzzywuzzy[speedup]>=0.18.0",
 ]
 
 [project.optional-dependencies]

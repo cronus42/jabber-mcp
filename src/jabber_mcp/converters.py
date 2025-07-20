@@ -39,7 +39,7 @@ class SendXmppMessage:
             f"</message>"
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation.
 
         Returns:
@@ -64,7 +64,7 @@ class ReceivedXmppMessage:
     jid: str
     body: str
     message_type: str = "chat"
-    timestamp: Optional[float] = None
+    timestamp: float | None = None
 
     @classmethod
     def from_stanza(
@@ -72,7 +72,7 @@ class ReceivedXmppMessage:
         from_jid: str,
         body: str,
         message_type: str = "chat",
-        timestamp: Optional[float] = None,
+        timestamp: float | None = None,
     ) -> "ReceivedXmppMessage":
         """Create from XMPP stanza data.
 
@@ -96,7 +96,7 @@ class ReceivedXmppMessage:
         )
 
     @classmethod
-    def from_mcp_event(cls, data: Dict[str, Any]) -> "ReceivedXmppMessage":
+    def from_mcp_event(cls, data: dict[str, Any]) -> "ReceivedXmppMessage":
         """Create from MCP event data.
 
         Args:
@@ -117,7 +117,7 @@ class ReceivedXmppMessage:
             body = str(body) if body is not None else ""
         if not isinstance(message_type, str):
             message_type = "chat"
-        if timestamp is not None and not isinstance(timestamp, (int, float)):
+        if timestamp is not None and not isinstance(timestamp, int | float):
             timestamp = None
 
         return cls(
@@ -127,13 +127,13 @@ class ReceivedXmppMessage:
             timestamp=timestamp,
         )
 
-    def to_mcp_event(self) -> Dict[str, Any]:
+    def to_mcp_event(self) -> dict[str, Any]:
         """Convert to MCP RECEIVED event.
 
         Returns:
             Dictionary representing MCP RECEIVED event.
         """
-        event: Dict[str, Any] = {
+        event: dict[str, Any] = {
             "type": "received_message",
             "from_jid": self.jid,
             "body": self.body,
@@ -146,7 +146,7 @@ class ReceivedXmppMessage:
         return event
 
 
-def convert_mcp_send_to_xmpp(mcp_data: Dict[str, Any]) -> SendXmppMessage:
+def convert_mcp_send_to_xmpp(mcp_data: dict[str, Any]) -> SendXmppMessage:
     """Convert MCP SEND command to XMPP message.
 
     Args:
@@ -185,8 +185,8 @@ def convert_xmpp_to_mcp_event(
     from_jid: str,
     body: str,
     message_type: str = "chat",
-    timestamp: Optional[float] = None,
-) -> Dict[str, Any]:
+    timestamp: float | None = None,
+) -> dict[str, Any]:
     """Convert incoming XMPP message to MCP RECEIVED event.
 
     Args:
@@ -216,3 +216,47 @@ def convert_xmpp_to_mcp_event(
     )
 
     return message.to_mcp_event()
+
+
+def inbox_record_to_mcp_content(inbox_record: dict[str, Any]) -> dict[str, Any]:
+    """Convert inbox record to MCP content blob.
+
+    Args:
+        inbox_record: Inbox record containing uuid, from_jid, body, ts
+
+    Returns:
+        Dictionary representing MCP content blob suitable for responses
+
+    Raises:
+        ValueError: If required fields are missing or invalid
+    """
+    if not isinstance(inbox_record, dict):
+        raise ValueError("inbox_record must be a dictionary")
+
+    message_id = inbox_record.get("uuid")
+    from_jid = inbox_record.get("from_jid")
+    body = inbox_record.get("body")
+    timestamp = inbox_record.get("ts")
+
+    if not message_id:
+        raise ValueError("Missing required field: uuid")
+    if not from_jid:
+        raise ValueError("Missing required field: from_jid")
+    if not isinstance(from_jid, str):
+        raise ValueError("Field 'from_jid' must be a string")
+    if not isinstance(body, str):
+        body = str(body) if body is not None else ""
+
+    # Create MCP content blob with structured data
+    content_blob = {
+        "type": "text",
+        "text": f"Message from {from_jid}: {body}",
+        "metadata": {
+            "message_id": message_id,
+            "from_jid": from_jid,
+            "body": body,
+            "timestamp": timestamp,
+        },
+    }
+
+    return content_blob

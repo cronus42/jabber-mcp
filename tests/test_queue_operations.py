@@ -16,8 +16,8 @@ class AdvancedMockMcpBridge(McpBridge):
 
     def __init__(self, queue_size: int = 10):
         super().__init__(queue_size)
-        self.xmpp_to_mcp_messages: List[Dict[str, Any]] = []
-        self.mcp_to_xmpp_messages: List[Dict[str, Any]] = []
+        self.xmpp_to_mcp_messages: list[dict[str, Any]] = []
+        self.mcp_to_xmpp_messages: list[dict[str, Any]] = []
         self.processing_delays = {"xmpp_to_mcp": 0.0, "mcp_to_xmpp": 0.0}
         self.processing_errors = {"xmpp_to_mcp": None, "mcp_to_xmpp": None}
         self.call_counts = {"xmpp_to_mcp": 0, "mcp_to_xmpp": 0}

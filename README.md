@@ -70,13 +70,39 @@ In Warp IDE, use the MCP tools:
 
 ## 📱 Usage Examples
 
+### Contact Management
+
+Save contacts to your address book:
+
+```json
+{
+  "tool": "address_book/save",
+  "arguments": {
+    "alias": "alice",
+    "jid": "alice@example.org"
+  }
+}
+```
+
 ### Basic XMPP Messaging
 
+Send messages using aliases or JIDs:
+
+```json
+{
+  "tool": "send_xmpp_message",
+  "arguments": {
+    "recipient": "alice",
+    "message": "Hi!"
+  }
+}
+```
+
 ```bash
-# In Warp IDE MCP interface:
+# Traditional format (also supported):
 Tool: send_xmpp_message
 Parameters:
-  jid: "friend@jabber.org"
+  recipient: "friend@jabber.org"
   message: "Hello from Warp IDE!"
 ```
 

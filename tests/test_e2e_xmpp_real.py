@@ -55,7 +55,7 @@ class TestE2EXmppReal:
     credentials are not available.
     """
 
-    def get_xmpp_credentials(self) -> Optional[Dict[str, str]]:
+    def get_xmpp_credentials(self) -> dict[str, str] | None:
         """Get XMPP credentials from environment variables."""
         jid = os.getenv("XMPP_TEST_JID")
         password = os.getenv("XMPP_TEST_PASSWORD")

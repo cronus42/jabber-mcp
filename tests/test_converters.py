@@ -7,6 +7,7 @@ from jabber_mcp.converters import (
     SendXmppMessage,
     convert_mcp_send_to_xmpp,
     convert_xmpp_to_mcp_event,
+    inbox_record_to_mcp_content,
 )
 
 
@@ -251,6 +252,97 @@ class TestConverterFunctions:
         # Invalid body type
         with pytest.raises(ValueError, match="Field 'body' must be a string"):
             convert_xmpp_to_mcp_event(from_jid="test@example.com", body=123)
+
+    def test_inbox_record_to_mcp_content(self):
+        """Test conversion of inbox record to MCP content blob."""
+        inbox_record = {
+            "uuid": "123e4567-e89b-12d3-a456-426655440000",
+            "from_jid": "sender@example.com",
+            "body": "Hi there!",
+            "ts": 1609459200.0,
+        }
+
+        content_blob = inbox_record_to_mcp_content(inbox_record)
+
+        expected = {
+            "type": "text",
+            "text": "Message from sender@example.com: Hi there!",
+            "metadata": {
+                "message_id": "123e4567-e89b-12d3-a456-426655440000",
+                "from_jid": "sender@example.com",
+                "body": "Hi there!",
+                "timestamp": 1609459200.0,
+            },
+        }
+
+        assert content_blob == expected
+
+    def test_inbox_record_to_mcp_content_missing_fields(self):
+        """Test inbox record conversion with missing required fields."""
+        # Missing uuid
+        with pytest.raises(ValueError, match="Missing required field: uuid"):
+            inbox_record_to_mcp_content(
+                {
+                    "from_jid": "sender@example.com",
+                    "body": "Hi there!",
+                    "ts": 1609459200.0,
+                }
+            )
+
+        # Missing from_jid
+        with pytest.raises(ValueError, match="Missing required field: from_jid"):
+            inbox_record_to_mcp_content(
+                {
+                    "uuid": "123e4567-e89b-12d3-a456-426655440000",
+                    "body": "Hi there!",
+                    "ts": 1609459200.0,
+                }
+            )
+
+    def test_inbox_record_to_mcp_content_invalid_types(self):
+        """Test inbox record conversion with invalid data types."""
+        # Not a dictionary
+        with pytest.raises(ValueError, match="inbox_record must be a dictionary"):
+            inbox_record_to_mcp_content("not a dict")
+
+        # Invalid from_jid type
+        with pytest.raises(ValueError, match="Field 'from_jid' must be a string"):
+            inbox_record_to_mcp_content(
+                {
+                    "uuid": "123e4567-e89b-12d3-a456-426655440000",
+                    "from_jid": 123,
+                    "body": "Hi there!",
+                    "ts": 1609459200.0,
+                }
+            )
+
+    def test_inbox_record_to_mcp_content_body_coercion(self):
+        """Test inbox record conversion with body type coercion."""
+        inbox_record = {
+            "uuid": "123e4567-e89b-12d3-a456-426655440000",
+            "from_jid": "sender@example.com",
+            "body": 42,  # Non-string body
+            "ts": 1609459200.0,
+        }
+
+        content_blob = inbox_record_to_mcp_content(inbox_record)
+
+        assert content_blob["text"] == "Message from sender@example.com: 42"
+        assert content_blob["metadata"]["body"] == "42"
+
+    def test_inbox_record_to_mcp_content_none_body(self):
+        """Test inbox record conversion with None body."""
+        inbox_record = {
+            "uuid": "123e4567-e89b-12d3-a456-426655440000",
+            "from_jid": "sender@example.com",
+            "body": None,
+            "ts": 1609459200.0,
+        }
+
+        content_blob = inbox_record_to_mcp_content(inbox_record)
+
+        assert content_blob["text"] == "Message from sender@example.com: "
+        assert content_blob["metadata"]["body"] == ""
 
     # Additional edge case tests for comprehensive coverage
     def test_from_mcp_event_type_coercion(self):

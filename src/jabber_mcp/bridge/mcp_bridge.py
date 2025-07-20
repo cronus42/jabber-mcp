@@ -4,9 +4,10 @@ import asyncio
 import logging
 import random
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,8 @@ class McpBridge(ABC):
         self._running = False
 
         # Callbacks for incoming XMPP stanzas
-        self._xmpp_message_callback: Optional[Callable[[dict[str, Any]], None]] = None
-        self._xmpp_presence_callback: Optional[Callable[[dict[str, Any]], None]] = None
+        self._xmpp_message_callback: Callable[[dict[str, Any]], None] | None = None
+        self._xmpp_presence_callback: Callable[[dict[str, Any]], None] | None = None
 
     async def start(self) -> None:
         """Launch async tasks for message processing.
@@ -281,7 +282,7 @@ class McpBridge(ABC):
         self,
         jid: str,
         presence_type: str,
-        status: Optional[str] = None,
+        status: str | None = None,
         timeout: float = _QUEUE_PUT_TIMEOUT,
     ) -> None:
         """Handle an incoming XMPP presence update.
@@ -473,7 +474,7 @@ class McpBridge(ABC):
         self,
         queue: asyncio.Queue[dict[str, Any]],
         timeout: float = _DEFAULT_QUEUE_TIMEOUT,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Safely get item from queue with timeout handling.
 
         Args:

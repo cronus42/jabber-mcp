@@ -21,7 +21,7 @@ class MockXmppAdapter:
         self.password = password
         self.mcp_bridge = mcp_bridge
         self.connected = False
-        self.sent_messages: List[Dict[str, Any]] = []
+        self.sent_messages: list[dict[str, Any]] = []
         self.connection_attempts = 0
         self.disconnect_calls = 0
 
@@ -63,8 +63,8 @@ class InMemoryMcpBridge(McpBridge):
     def __init__(self, queue_size: int = 100, xmpp_adapter=None):
         super().__init__(queue_size)
         self.xmpp_adapter = xmpp_adapter
-        self.processed_messages: List[Dict[str, Any]] = []
-        self.errors: List[Exception] = []
+        self.processed_messages: list[dict[str, Any]] = []
+        self.errors: list[Exception] = []
 
     async def _process_xmpp_to_mcp(self) -> None:
         """Process messages from XMPP to MCP queue."""
@@ -166,7 +166,7 @@ class InMemoryMcpServer:
             error={"code": -32601, "message": f"Method not found: {method}"},
         )
 
-    async def _handle_send_message(self, request: JsonRpcMessage, args: Dict[str, Any]):
+    async def _handle_send_message(self, request: JsonRpcMessage, args: dict[str, Any]):
         """Handle send_message tool call."""
         recipient = args.get("recipient")
         message = args.get("message")
@@ -205,7 +205,7 @@ class InMemoryMcpServer:
                 id=request.id, error={"code": -32603, "message": f"Send failed: {e}"}
             )
 
-    async def _handle_ping(self, request: JsonRpcMessage, args: Dict[str, Any]):
+    async def _handle_ping(self, request: JsonRpcMessage, args: dict[str, Any]):
         """Handle ping tool call."""
         is_connected = self.xmpp_adapter and self.xmpp_adapter.connected
         return JsonRpcMessage(
