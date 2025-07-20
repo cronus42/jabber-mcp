@@ -75,7 +75,7 @@ class McpStdioServer:
             "prompts": {},
             "resources": {},
             "tools": {
-                "send_message": {
+                "send_xmpp_message": {
                     "description": "Send a message through XMPP",
                     "inputSchema": {
                         "type": "object",
@@ -265,7 +265,7 @@ class McpStdioServer:
 
         logger.info(f"Calling tool: {tool_name} with arguments: {arguments}")
 
-        if tool_name == "send_message":
+        if tool_name == "send_xmpp_message":
             return await self._tool_send_message(message, arguments)
         elif tool_name == "ping":
             return await self._tool_ping(message, arguments)

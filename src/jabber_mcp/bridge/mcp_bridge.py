@@ -2,13 +2,44 @@
 
 import asyncio
 import logging
+import random
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 # Constants for message truncation
 _MESSAGE_TRUNCATE_LENGTH = 100
+
+# Constants for error handling and back-pressure
+_DEFAULT_QUEUE_TIMEOUT = 5.0  # seconds
+_QUEUE_PUT_TIMEOUT = 2.0  # seconds for put operations with back-pressure
+_MAX_RETRY_ATTEMPTS = 3
+_INITIAL_RETRY_DELAY = 1.0  # seconds
+_MAX_RETRY_DELAY = 30.0  # seconds
+
+
+class ConnectionState(Enum):
+    """Connection state for error handling and reconnection."""
+
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    RECONNECTING = "reconnecting"
+    FAILED = "failed"
+
+
+@dataclass
+class RetryConfig:
+    """Configuration for retry behavior."""
+
+    max_attempts: int = _MAX_RETRY_ATTEMPTS
+    initial_delay: float = _INITIAL_RETRY_DELAY
+    max_delay: float = _MAX_RETRY_DELAY
+    backoff_multiplier: float = 2.0
+    jitter: bool = True
 
 
 class McpBridge(ABC):
@@ -96,15 +127,18 @@ class McpBridge(ABC):
 
         logger.info("MCP Bridge stopped successfully")
 
-    async def send_to_jabber(self, jid: str, body: str) -> None:
-        """Send a message to a Jabber/XMPP recipient.
+    async def send_to_jabber(
+        self, jid: str, body: str, timeout: float = _QUEUE_PUT_TIMEOUT
+    ) -> None:
+        """Send a message to a Jabber/XMPP recipient with back-pressure handling.
 
         Args:
             jid: The Jabber ID of the recipient
             body: The message text to send
+            timeout: Maximum time to wait for queue space (seconds)
 
         Raises:
-            asyncio.QueueFull: If the mcp_to_xmpp queue is full
+            asyncio.TimeoutError: If queue put times out due to back-pressure
             ValueError: If jid or body are invalid
         """
         if not jid or not isinstance(jid, str):
@@ -122,6 +156,7 @@ class McpBridge(ABC):
         }
 
         try:
+            # First try immediate put
             self.mcp_to_xmpp.put_nowait(message)
             truncated_body = (
                 body[:_MESSAGE_TRUNCATE_LENGTH] + "..."
@@ -130,8 +165,33 @@ class McpBridge(ABC):
             )
             logger.debug("Queued message to %s: %s", jid, truncated_body)
         except asyncio.QueueFull:
-            logger.error("MCP to XMPP queue is full, dropping message to %s", jid)
-            raise
+            # Queue is full, try with timeout for back-pressure handling
+            logger.warning(
+                "MCP to XMPP queue is full (%d/%d), attempting timed put to %s",
+                self.mcp_to_xmpp.qsize(),
+                self.mcp_to_xmpp.maxsize,
+                jid,
+            )
+            try:
+                await asyncio.wait_for(self.mcp_to_xmpp.put(message), timeout=timeout)
+                truncated_body = (
+                    body[:_MESSAGE_TRUNCATE_LENGTH] + "..."
+                    if len(body) > _MESSAGE_TRUNCATE_LENGTH
+                    else body
+                )
+                logger.debug(
+                    "Queued message to %s after back-pressure delay: %s",
+                    jid,
+                    truncated_body,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "MCP to XMPP queue timeout after %.2fs, dropping message to %s",
+                    timeout,
+                    jid,
+                )
+                # NACK - we log the drop and re-raise for upstream handling
+                raise
 
     def set_xmpp_message_callback(
         self, callback: Callable[[dict[str, Any]], None]
@@ -154,7 +214,11 @@ class McpBridge(ABC):
         self._xmpp_presence_callback = callback
 
     async def handle_incoming_xmpp_message(
-        self, jid: str, body: str, message_type: str = "chat"
+        self,
+        jid: str,
+        body: str,
+        message_type: str = "chat",
+        timeout: float = _QUEUE_PUT_TIMEOUT,
     ) -> None:
         """Handle an incoming XMPP message by queuing it for MCP processing.
 
@@ -162,6 +226,10 @@ class McpBridge(ABC):
             jid: The sender's Jabber ID
             body: The message text
             message_type: The XMPP message type (chat, normal, etc.)
+            timeout: Maximum time to wait for queue space (seconds)
+
+        Raises:
+            asyncio.TimeoutError: If queue put times out due to back-pressure
         """
         message = {
             "type": "received_message",
@@ -172,6 +240,7 @@ class McpBridge(ABC):
         }
 
         try:
+            # First try immediate put
             self.xmpp_to_mcp.put_nowait(message)
             truncated_body = (
                 body[:_MESSAGE_TRUNCATE_LENGTH] + "..."
@@ -180,10 +249,40 @@ class McpBridge(ABC):
             )
             logger.debug("Queued incoming message from %s: %s", jid, truncated_body)
         except asyncio.QueueFull:
-            logger.warning("XMPP to MCP queue is full, dropping message from %s", jid)
+            # Queue is full, try with timeout for back-pressure handling
+            logger.warning(
+                "XMPP to MCP queue is full (%d/%d), attempting timed put from %s",
+                self.xmpp_to_mcp.qsize(),
+                self.xmpp_to_mcp.maxsize,
+                jid,
+            )
+            try:
+                await asyncio.wait_for(self.xmpp_to_mcp.put(message), timeout=timeout)
+                truncated_body = (
+                    body[:_MESSAGE_TRUNCATE_LENGTH] + "..."
+                    if len(body) > _MESSAGE_TRUNCATE_LENGTH
+                    else body
+                )
+                logger.debug(
+                    "Queued message from %s after back-pressure delay: %s",
+                    jid,
+                    truncated_body,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "XMPP to MCP queue timeout after %.2fs, dropping message from %s",
+                    timeout,
+                    jid,
+                )
+                # NACK - we log the drop and re-raise for upstream handling
+                raise
 
     async def handle_incoming_xmpp_presence(
-        self, jid: str, presence_type: str, status: Optional[str] = None
+        self,
+        jid: str,
+        presence_type: str,
+        status: Optional[str] = None,
+        timeout: float = _QUEUE_PUT_TIMEOUT,
     ) -> None:
         """Handle an incoming XMPP presence update.
 
@@ -191,6 +290,10 @@ class McpBridge(ABC):
             jid: The Jabber ID whose presence changed
             presence_type: The presence type (available, unavailable, etc.)
             status: Optional status message
+            timeout: Maximum time to wait for queue space (seconds)
+
+        Raises:
+            asyncio.TimeoutError: If queue put times out due to back-pressure
         """
         presence = {
             "type": "presence_update",
@@ -201,12 +304,32 @@ class McpBridge(ABC):
         }
 
         try:
+            # First try immediate put
             self.xmpp_to_mcp.put_nowait(presence)
             logger.debug("Queued presence update from %s: %s", jid, presence_type)
         except asyncio.QueueFull:
+            # Queue is full, try with timeout for back-pressure handling
             logger.warning(
-                "XMPP to MCP queue is full, dropping presence update from %s", jid
+                "XMPP to MCP queue is full (%d/%d), attempting timed put for presence from %s",
+                self.xmpp_to_mcp.qsize(),
+                self.xmpp_to_mcp.maxsize,
+                jid,
             )
+            try:
+                await asyncio.wait_for(self.xmpp_to_mcp.put(presence), timeout=timeout)
+                logger.debug(
+                    "Queued presence from %s after back-pressure delay: %s",
+                    jid,
+                    presence_type,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "XMPP to MCP queue timeout after %.2fs, dropping presence from %s",
+                    timeout,
+                    jid,
+                )
+                # NACK - we log the drop and re-raise for upstream handling
+                raise
 
     @property
     def is_running(self) -> bool:
@@ -252,3 +375,128 @@ class McpBridge(ABC):
 
         Called during stop() after core tasks are cancelled.
         """
+
+    # Utility methods for error handling and retry logic
+
+    @staticmethod
+    def _calculate_retry_delay(attempt: int, config: RetryConfig) -> float:
+        """Calculate retry delay with exponential backoff and optional jitter.
+
+        Args:
+            attempt: Current retry attempt (0-based)
+            config: Retry configuration
+
+        Returns:
+            Delay in seconds before next retry
+        """
+        if attempt == 0:
+            return 0  # No delay for first attempt
+
+        # Exponential backoff: initial_delay * (backoff_multiplier ^ (attempt - 1))
+        delay = config.initial_delay * (config.backoff_multiplier ** (attempt - 1))
+        delay = min(delay, config.max_delay)  # Cap at max_delay
+
+        # Add jitter to avoid thundering herd
+        if config.jitter:
+            # Add up to 25% random jitter
+            jitter_range = delay * 0.25
+            delay += random.uniform(-jitter_range, jitter_range)
+            delay = max(0, delay)  # Ensure non-negative
+
+        return delay
+
+    async def _retry_with_backoff(
+        self,
+        operation: Callable[[], Any],
+        config: RetryConfig,
+        operation_name: str = "operation",
+    ) -> Any:
+        """Execute an operation with retry and exponential backoff.
+
+        Args:
+            operation: Async callable to retry
+            config: Retry configuration
+            operation_name: Name for logging purposes
+
+        Returns:
+            Result of the successful operation
+
+        Raises:
+            Exception: Last exception if all retries fail
+        """
+        last_exception = None
+
+        for attempt in range(config.max_attempts):
+            try:
+                logger.debug(
+                    "Attempting %s (attempt %d/%d)",
+                    operation_name,
+                    attempt + 1,
+                    config.max_attempts,
+                )
+                result = await operation()
+                if attempt > 0:
+                    logger.info(
+                        "%s succeeded after %d retries", operation_name, attempt
+                    )
+                return result
+
+            except Exception as e:
+                last_exception = e
+                if attempt + 1 >= config.max_attempts:
+                    logger.error(
+                        "%s failed after %d attempts: %s",
+                        operation_name,
+                        config.max_attempts,
+                        e,
+                    )
+                    break
+
+                delay = self._calculate_retry_delay(attempt + 1, config)
+                logger.warning(
+                    "%s failed (attempt %d/%d): %s. Retrying in %.2fs...",
+                    operation_name,
+                    attempt + 1,
+                    config.max_attempts,
+                    e,
+                    delay,
+                )
+
+                if delay > 0:
+                    await asyncio.sleep(delay)
+
+        # Re-raise the last exception if all retries failed
+        if last_exception:
+            raise last_exception
+
+    async def _safe_queue_get(
+        self,
+        queue: asyncio.Queue[dict[str, Any]],
+        timeout: float = _DEFAULT_QUEUE_TIMEOUT,
+    ) -> Optional[dict[str, Any]]:
+        """Safely get item from queue with timeout handling.
+
+        Args:
+            queue: The queue to get from
+            timeout: Maximum time to wait for an item
+
+        Returns:
+            Queue item or None if timeout/cancelled
+        """
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            # This is expected during normal operation - just return None
+            return None
+        except asyncio.CancelledError:
+            logger.debug("Queue get operation cancelled")
+            raise
+        except Exception as e:
+            logger.error("Unexpected error getting from queue: %s", e)
+            return None
+
+    def get_connection_state(self) -> ConnectionState:
+        """Get current connection state. Default implementation returns CONNECTED if running."""
+        return (
+            ConnectionState.CONNECTED if self._running else ConnectionState.DISCONNECTED
+        )

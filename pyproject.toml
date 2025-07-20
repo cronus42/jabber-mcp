@@ -49,6 +49,7 @@ dev = [
 
 [project.scripts]
 jabber-mcp-server = "jabber_mcp.mcp_stdio_server:main"
+jabber-mcp-xmpp-server = "jabber_mcp.xmpp_mcp_server:main"
 
 [project.urls]
 Documentation = "https://github.com/your-username/jabber-mcp#readme"
