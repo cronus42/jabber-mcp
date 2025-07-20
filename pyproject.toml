@@ -7,19 +7,17 @@ name = "jabber-mcp"
 dynamic = ["version"]
 description = "XMPP-MCP bridge for Warp IDE integration"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = ["xmpp", "mcp", "bridge", "warp", "messaging"]
 authors = [
-  { name = "Your Name", email = "your.email@example.com" },
+  { name = "cronus42", email = "cronus@example.com" },
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
