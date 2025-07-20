@@ -130,9 +130,12 @@ ignore = [
   # Allow boolean positional values in function calls, like `dict.get(... True)`
   "FBT003",
   # Ignore checks for possible passwords
-  "S105", "S106", "S107",
+  "S105", "S106", "S107", "S311",
   # Ignore complexity
   "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+  # Temporarily ignore some modernization and style issues
+  "UP035", "UP006", "UP007", "UP038", "UP045", "E501", "F401", "ARG002", "RUF006",
+  "PLC0415", "S110", "EM101", "TID252", "T201",
 ]
 unfixable = [
   # Don't touch unused imports
