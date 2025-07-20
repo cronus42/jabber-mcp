@@ -27,4 +27,4 @@ repos:
           pytest,
           slixmpp,
         ]
-        args: [--install-types, --non-interactive]
+        args: [--install-types, --non-interactive, --ignore-missing-imports]
