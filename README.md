@@ -177,7 +177,7 @@ XMPP_USER=test@server.com XMPP_PASSWORD=pass pytest tests/test_e2e/
 Tested with:
 
 - **ejabberd** ✅
-- **Prosody** ✅ 
+- **Prosody** ✅
 - **OpenFire** ✅
 - **Tigase** ✅
 - **MongooseIM** ✅

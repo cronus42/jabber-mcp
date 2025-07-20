@@ -29,7 +29,7 @@ Represents an outgoing XMPP message from an MCP SEND command.
 Represents an incoming XMPP message that needs to become an MCP event.
 
 **Fields:**
-- `jid: str` - The sender's Jabber ID  
+- `jid: str` - The sender's Jabber ID
 - `body: str` - The message text
 - `message_type: str = "chat"` - XMPP message type
 - `timestamp: Optional[float] = None` - Message timestamp
@@ -75,7 +75,7 @@ Converts an incoming XMPP message to an MCP RECEIVED event.
 - **Type Safety**: Full mypy strict mode compliance with runtime type validation
 - **Input Validation**: Validates required fields and data types
 
-### Robustness  
+### Robustness
 - **Type Coercion**: Gracefully handles invalid types from MCP events
 - **Fallback Handling**: Uses sensible defaults for missing optional fields
 - **Error Messages**: Clear, descriptive error messages for invalid inputs
@@ -107,14 +107,14 @@ from jabber_mcp.converters import convert_xmpp_to_mcp_event
 # Convert incoming XMPP message
 event = convert_xmpp_to_mcp_event(
     from_jid='bob@example.com',
-    body='Hi there!', 
+    body='Hi there!',
     timestamp=1234567890.0
 )
 
 print(event)
 # Output: {
 #   'type': 'received_message',
-#   'from_jid': 'bob@example.com', 
+#   'from_jid': 'bob@example.com',
 #   'body': 'Hi there!',
 #   'message_type': 'chat',
 #   'timestamp': 1234567890.0
@@ -140,7 +140,7 @@ print(send_msg.to_stanza())
 The converters are designed to work seamlessly with the MCP Bridge:
 
 1. MCP tool calls are converted to `SendXmppMessage` objects
-2. These are converted to XMPP stanzas for transmission  
+2. These are converted to XMPP stanzas for transmission
 3. Incoming XMPP messages are converted to MCP RECEIVED events
 4. Events are queued for processing by MCP clients
 

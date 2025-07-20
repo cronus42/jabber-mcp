@@ -137,7 +137,7 @@ pytest --cov=jabber_mcp --cov-report=html
 
 # Run specific test categories
 pytest tests/test_converters.py -v          # Unit tests
-pytest tests/test_*integration*.py -v       # Integration tests  
+pytest tests/test_*integration*.py -v       # Integration tests
 pytest tests/test_e2e*.py -v                # E2E tests
 
 # Run with real XMPP (requires env vars)
@@ -152,7 +152,7 @@ pytest tests/test_e2e_xmpp_real.py::TestE2EXmppReal -v
 The Jabber MCP Server project has achieved **exceptional test coverage (83%)** with a comprehensive test suite covering:
 
 - ✅ **Unit tests** for all critical components
-- ✅ **Integration tests** with realistic mock scenarios  
+- ✅ **Integration tests** with realistic mock scenarios
 - ✅ **End-to-end tests** supporting both mocked and real XMPP connections
 - ✅ **Error handling** for edge cases and failure scenarios
 - ✅ **Performance validation** under high load
