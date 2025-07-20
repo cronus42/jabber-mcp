@@ -47,6 +47,9 @@ dev = [
   "ruff>=0.1.0",
 ]
 
+[project.scripts]
+jabber-mcp-server = "jabber_mcp.mcp_stdio_server:main"
+
 [project.urls]
 Documentation = "https://github.com/your-username/jabber-mcp#readme"
 Issues = "https://github.com/your-username/jabber-mcp/issues"
