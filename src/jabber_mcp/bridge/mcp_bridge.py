@@ -164,7 +164,8 @@ class McpBridge(ABC):
                 if len(body) > _MESSAGE_TRUNCATE_LENGTH
                 else body
             )
-            logger.debug("Queued message to %s: %s", jid, truncated_body)
+            # Lower level from DEBUG to INFO for queued messages
+            logger.info("Queued message to %s: %s", jid, truncated_body)
         except asyncio.QueueFull:
             # Queue is full, try with timeout for back-pressure handling
             logger.warning(
@@ -180,7 +181,8 @@ class McpBridge(ABC):
                     if len(body) > _MESSAGE_TRUNCATE_LENGTH
                     else body
                 )
-                logger.debug(
+                # Lower log level from DEBUG to INFO for messages after delay
+                logger.info(
                     "Queued message to %s after back-pressure delay: %s",
                     jid,
                     truncated_body,
@@ -248,7 +250,8 @@ class McpBridge(ABC):
                 if len(body) > _MESSAGE_TRUNCATE_LENGTH
                 else body
             )
-            logger.debug("Queued incoming message from %s: %s", jid, truncated_body)
+            # Lower log level from DEBUG to INFO for incoming messages
+            logger.info("Queued incoming message from %s: %s", jid, truncated_body)
         except asyncio.QueueFull:
             # Queue is full, try with timeout for back-pressure handling
             logger.warning(
@@ -264,7 +267,8 @@ class McpBridge(ABC):
                     if len(body) > _MESSAGE_TRUNCATE_LENGTH
                     else body
                 )
-                logger.debug(
+                # Lower log level from DEBUG to INFO for delayed incoming messages
+                logger.info(
                     "Queued message from %s after back-pressure delay: %s",
                     jid,
                     truncated_body,
@@ -307,7 +311,8 @@ class McpBridge(ABC):
         try:
             # First try immediate put
             self.xmpp_to_mcp.put_nowait(presence)
-            logger.debug("Queued presence update from %s: %s", jid, presence_type)
+            # Lower log level from DEBUG to INFO for presence updates
+            logger.info("Queued presence update from %s: %s", jid, presence_type)
         except asyncio.QueueFull:
             # Queue is full, try with timeout for back-pressure handling
             logger.warning(
@@ -318,7 +323,8 @@ class McpBridge(ABC):
             )
             try:
                 await asyncio.wait_for(self.xmpp_to_mcp.put(presence), timeout=timeout)
-                logger.debug(
+                # Lower log level from DEBUG to INFO for delayed presence updates
+                logger.info(
                     "Queued presence from %s after back-pressure delay: %s",
                     jid,
                     presence_type,
@@ -429,7 +435,8 @@ class McpBridge(ABC):
 
         for attempt in range(config.max_attempts):
             try:
-                logger.debug(
+                # Reduce retry attempt logging to INFO
+                logger.info(
                     "Attempting %s (attempt %d/%d)",
                     operation_name,
                     attempt + 1,
@@ -490,7 +497,8 @@ class McpBridge(ABC):
             # This is expected during normal operation - just return None
             return None
         except asyncio.CancelledError:
-            logger.debug("Queue get operation cancelled")
+            # Elevate log level to INFO for queue cancellations
+            logger.info("Queue get operation cancelled")
             raise
         except Exception as e:
             logger.error("Unexpected error getting from queue: %s", e)

@@ -157,7 +157,8 @@ class AddressBook:
             )
             return True
         else:
-            logger.debug(f"Alias '{alias}' already maps to '{jid}', no change")
+            # Lowered log level from DEBUG to INFO for less verbosity
+            logger.info(f"Alias '{alias}' already maps to '{jid}', no change")
             return False
 
     async def query(self, term: str) -> List[Tuple[str, str, int]]:

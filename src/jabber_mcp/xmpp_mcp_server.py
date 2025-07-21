@@ -9,6 +9,20 @@ import uuid
 from collections import deque
 from typing import Any, Dict, Optional
 
+# Import for slug generation
+try:
+    from slugify import slugify
+except ImportError:
+    # Fallback implementation if python-slugify not available
+    def slugify(text: str) -> str:
+        """Simple fallback slugify implementation."""
+        import re
+
+        # Convert to lowercase and replace non-alphanumeric with dashes
+        text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+        return re.sub(r"[\s_-]+", "-", text)
+
+
 from jabber_mcp.address_book import AddressBook, AddressBookError
 from jabber_mcp.bridge.mcp_bridge import McpBridge
 from jabber_mcp.mcp_stdio_server import JsonRpcMessage, McpStdioServer
@@ -16,10 +30,22 @@ from jabber_mcp.xmpp_adapter import XmppAdapter
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     stream=sys.stderr,
 )
+
+# Reduce verbosity of specific loggers to prevent log spam
+logging.getLogger("slixmpp.xmlstream.xmlstream").setLevel(logging.WARNING)
+logging.getLogger("slixmpp.xmlstream.resolver").setLevel(logging.WARNING)
+logging.getLogger("slixmpp.features").setLevel(logging.INFO)
+logging.getLogger("slixmpp.plugins").setLevel(logging.INFO)
+logging.getLogger("slixmpp.clientxmpp").setLevel(logging.INFO)
+logging.getLogger("slixmpp.basexmpp").setLevel(logging.INFO)
+# Additional slixmpp loggers to quiet down
+logging.getLogger("slixmpp").setLevel(logging.WARNING)  # Catch-all for slixmpp
+logging.getLogger("root").setLevel(logging.WARNING)  # Root logger warnings
+
 logger = logging.getLogger(__name__)
 
 # Security validation patterns
@@ -295,6 +321,226 @@ class XmppMcpBridge(McpBridge):
             logger.error(f"Error querying address book with term '{term}': {e}")
             return []
 
+    async def sync_roster(
+        self, entries: list[tuple[str, str | None]]
+    ) -> dict[str, Any]:
+        """Synchronize roster entries with the address book.
+
+        Args:
+            entries: List of tuples (jid, display_name) from XMPP roster
+
+        Returns:
+            Dictionary with sync statistics: {"added": int, "skipped": int, "errors": int}
+        """
+        if self.address_book is None:
+            logger.warning("Address book not available for roster sync")
+            return {"added": 0, "skipped": 0, "errors": 0}
+
+        stats = {"added": 0, "skipped": 0, "errors": 0}
+        logger.info(f"Starting roster sync with {len(entries)} entries")
+
+        for jid, display_name in entries:
+            try:
+                # Validate JID
+                if not _validate_jid_input(jid):
+                    logger.warning(f"Invalid JID format, skipping: {jid}")
+                    stats["errors"] += 1
+                    continue
+
+                # Generate alias from display name or JID localpart
+                if display_name and display_name.strip():
+                    # Use display name, slugified for safety
+                    alias = slugify(display_name.strip())
+                    if not alias:  # fallback if slugify produces empty string
+                        alias = self._sanitize_alias_from_jid(jid)
+                else:
+                    # Use JID localpart (part before @) as alias, sanitized
+                    alias = self._sanitize_alias_from_jid(jid)
+
+                # Validate generated alias
+                if not _validate_alias_input(alias):
+                    logger.warning(
+                        f"Generated invalid alias '{alias}' for JID {jid}, skipping"
+                    )
+                    stats["errors"] += 1
+                    continue
+
+                # Check if alias or JID already exists
+                existing_jid = self.address_book.get_exact(alias)
+                if existing_jid:
+                    if existing_jid == jid:
+                        logger.info(f"Roster entry already exists: {alias} - {jid}")
+                        stats["skipped"] += 1
+                        continue
+                    else:
+                        # Alias exists but points to different JID
+                        # Check if this might be an auto-generated alias we can overwrite
+                        # or if it's a manual entry we should preserve
+                        potential_auto_alias = existing_jid.split("@")[0].lower()
+                        if alias == potential_auto_alias:
+                            # This looks like it might be an auto-generated alias, safe to update
+                            logger.info(
+                                f"Updating auto-generated alias '{alias}': {existing_jid} -> {jid}"
+                            )
+                        else:
+                            # This looks like a manual alias, don't overwrite
+                            # Generate alternative alias by appending domain
+                            domain_part = jid.split("@")[1].split(".")[
+                                0
+                            ]  # first part of domain
+                            alternative_alias = f"{alias}-{domain_part}"
+
+                            # Check if alternative alias is available
+                            if self.address_book.get_exact(alternative_alias):
+                                logger.warning(
+                                    f"Cannot create alias for {jid}: both '{alias}' and '{alternative_alias}' exist"
+                                )
+                                stats["skipped"] += 1
+                                continue
+
+                            alias = alternative_alias
+                            logger.info(
+                                f"Using alternative alias '{alias}' for {jid} to avoid conflict"
+                            )
+
+                # Check if JID already exists with a different alias
+                existing_aliases = [
+                    a for a, j in self.address_book.list_all().items() if j == jid
+                ]
+                if existing_aliases:
+                    logger.info(
+                        f"JID {jid} already exists with alias(es): {existing_aliases}"
+                    )
+                    stats["skipped"] += 1
+                    continue
+
+                # Add the new entry
+                try:
+                    changed = await self.address_book.save_alias(alias, jid)
+                    if changed:
+                        logger.info(f"Added roster entry: {alias} - {jid}")
+                        if display_name:
+                            logger.info(f"  (from display name: '{display_name}')")
+                        stats["added"] += 1
+                        # Auto-save after changes
+                        self.address_book.save()
+                    else:
+                        stats["skipped"] += 1
+                except ValueError as e:
+                    logger.error(
+                        f"Failed to save roster entry '{alias}' -> '{jid}': {e}"
+                    )
+                    stats["errors"] += 1
+
+            except Exception as e:
+                logger.error(f"Error processing roster entry {jid}: {e}")
+                stats["errors"] += 1
+
+        logger.info(
+            f"Roster sync completed: {stats['added']} added, {stats['skipped']} skipped, {stats['errors']} errors"
+        )
+        return stats
+
+    def _sanitize_alias_from_jid(self, jid: str) -> str:
+        """Generate a valid alias from a JID localpart, handling special cases like phone numbers.
+
+        Args:
+            jid: The full JID
+
+        Returns:
+            A sanitized alias that passes validation
+        """
+        # Get the localpart (part before @)
+        localpart = jid.split("@")[0].lower()
+
+        # Handle phone numbers (remove + prefix and any special chars)
+        if localpart.startswith("+"):
+            # Phone number: strip + and keep only digits
+            sanitized = re.sub(r"[^0-9]", "", localpart)
+            # Prepend 'phone' to make it clear and valid
+            if sanitized:
+                return f"phone{sanitized}"
+
+        # For other JIDs, remove any invalid characters and replace with dashes
+        sanitized = re.sub(r"[^a-zA-Z0-9_.-]", "-", localpart)
+
+        # Remove leading/trailing dashes and collapse multiple dashes
+        sanitized = re.sub(r"^-+|-+$", "", sanitized)  # Remove leading/trailing
+        sanitized = re.sub(r"-+", "-", sanitized)  # Collapse multiple dashes
+
+        # Ensure we have something valid
+        if not sanitized or not sanitized.replace("-", "").replace("_", "").replace(
+            ".", ""
+        ):
+            # Fallback: use 'contact' plus secure hash of original JID
+            import hashlib
+
+            hash_suffix = hashlib.sha256(jid.encode()).hexdigest()[:8]
+            sanitized = f"contact-{hash_suffix}"
+            sanitized = f"contact-{hash_suffix}"
+
+        return sanitized
+
+    async def sync_roster_incremental(
+        self, added: list[tuple[str, str | None]], removed: list[str]
+    ) -> dict[str, Any]:
+        """Handle incremental roster updates.
+
+        Args:
+            added: List of tuples (jid, display_name) for new roster entries
+            removed: List of JIDs that were removed from the roster
+
+        Returns:
+            Dictionary with sync statistics: {"added": int, "removed": int, "errors": int}
+        """
+        if self.address_book is None:
+            logger.warning("Address book not available for incremental roster sync")
+            return {"added": 0, "removed": 0, "errors": 0}
+
+        stats = {"added": 0, "removed": 0, "errors": 0}
+        logger.info(
+            f"Starting incremental roster sync: {len(added)} added, {len(removed)} removed"
+        )
+
+        # Handle added entries
+        if added:
+            add_stats = await self.sync_roster(added)
+            stats["added"] = add_stats["added"]
+            stats["errors"] += add_stats["errors"]
+
+        # Handle removed entries
+        for jid in removed:
+            try:
+                # Find aliases that point to this JID
+                aliases_to_remove = [
+                    alias
+                    for alias, stored_jid in self.address_book.list_all().items()
+                    if stored_jid == jid
+                ]
+
+                for alias in aliases_to_remove:
+                    try:
+                        success = self.address_book.remove_alias(alias)
+                        if success:
+                            logger.info(f"Removed roster entry: {alias} -> {jid}")
+                            stats["removed"] += 1
+                    except Exception as e:
+                        logger.error(f"Failed to remove alias '{alias}': {e}")
+                        stats["errors"] += 1
+
+                # Save changes if any removals occurred
+                if aliases_to_remove:
+                    self.address_book.save()
+
+            except Exception as e:
+                logger.error(f"Error processing removed roster entry {jid}: {e}")
+                stats["errors"] += 1
+
+        logger.info(
+            f"Incremental roster sync completed: {stats['added']} added, {stats['removed']} removed, {stats['errors']} errors"
+        )
+        return stats
+
     async def _start_additional_tasks(self) -> None:
         """Load address book on startup."""
         if self.address_book:
@@ -349,7 +595,8 @@ class XmppMcpBridge(McpBridge):
                             # Thread-safe inbox append operation
                             async with self._inbox_lock:
                                 self.inbox.append(inbox_record)
-                            logger.debug(
+                            # Lower log level to INFO for inbox messages
+                            logger.info(
                                 f"Added message to inbox: {inbox_record['uuid']} from {inbox_record['from_jid']}"
                             )
                         else:
@@ -396,7 +643,8 @@ class XmppMcpServer(McpStdioServer):
         """Send a JSON-RPC notification to stdout."""
         notification = JsonRpcMessage(method=method, params=params)
         notification_json = notification.to_json()
-        logger.debug(f"Sending notification: {notification_json}")
+        # Reduced log level for notifications to INFO
+        logger.info(f"Sending notification: {notification_json}")
         # Send notification via stdout for MCP protocol
         sys.stdout.write(f"{notification_json}\n")
         sys.stdout.flush()
@@ -697,17 +945,21 @@ class XmppMcpServer(McpStdioServer):
                         # Convert timestamp to readable format
                         if msg["timestamp"]:
                             try:
-                                dt = datetime.datetime.fromtimestamp(msg["timestamp"], tz=datetime.timezone.utc)
+                                dt = datetime.datetime.fromtimestamp(
+                                    msg["timestamp"], tz=datetime.timezone.utc
+                                )
                                 time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
                             except (ValueError, TypeError):
                                 time_str = str(msg["timestamp"])
                         else:
                             time_str = "Unknown time"
-                        
+
                         preview_max_len = 50  # Max length for preview text
                         text_lines.append(f"{i}. From: {msg['from']}")
                         text_lines.append(f"   Time: {time_str}")
-                        text_lines.append(f"   Preview: {msg['preview']}{'...' if len(str(msg.get('preview', ''))) >= preview_max_len else ''}")
+                        text_lines.append(
+                            f"   Preview: {msg['preview']}{'...' if len(str(msg.get('preview', ''))) >= preview_max_len else ''}"
+                        )
                         text_lines.append(f"   ID: {msg['id']}")
                         text_lines.append("-" * 40)
 

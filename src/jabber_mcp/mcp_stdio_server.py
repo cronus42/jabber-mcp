@@ -177,7 +177,8 @@ class McpStdioServer:
                     if not data:
                         continue
 
-                    logger.debug(f"Received: {data}")
+                    # Debug-level logging for received data has been removed
+                    # logger.info(f"Received: {data}")
 
                     # Parse JSON-RPC message
                     message = JsonRpcMessage.from_json(data)
@@ -185,7 +186,7 @@ class McpStdioServer:
 
                     if response:
                         response_json = response.to_json()
-                        logger.debug(f"Sending: {response_json}")
+                        logger.info(f"Sending: {response_json}")
                         # Print to stdout for MCP protocol communication
                         sys.stdout.write(f"{response_json}\n")
                         sys.stdout.flush()
@@ -220,7 +221,8 @@ class McpStdioServer:
 
         # Handle responses (not expected in this server implementation)
         elif message.result is not None or message.error is not None:
-            logger.debug(f"Received response with id {message.id}")
+            # Removed excessive debug logging for response handling
+            # logger.info(f"Received response with id {message.id}")
             return None
 
         # Invalid message
